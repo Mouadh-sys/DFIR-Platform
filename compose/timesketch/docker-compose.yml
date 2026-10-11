@@ -1,0 +1,87 @@
+services:
+  opensearch:
+    image: opensearchproject/opensearch:2.11.0
+    container_name: dfir-opensearch
+    environment:
+      - discovery.type=single-node
+      - plugins.security.disabled=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms1536m -Xmx1536m"
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: dfir-timesketch-postgres
+    environment:
+      - POSTGRES_USER=timesketch
+      - POSTGRES_PASSWORD=timesketch_dev_secret
+      - POSTGRES_DB=timesketch
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: dfir-timesketch-redis
+    restart: unless-stopped
+
+  timesketch-web:
+    image: us-docker.pkg.dev/osdfir-registry/timesketch/timesketch:20260630
+    container_name: dfir-timesketch-web
+    environment:
+      - POSTGRES_USER=timesketch
+      - POSTGRES_PASSWORD=timesketch_dev_secret
+      - POSTGRES_ADDRESS=postgres
+      - POSTGRES_PORT=5432
+      - OPENSEARCH_HOST=opensearch
+      - OPENSEARCH_PORT=9200
+      - REDIS_ADDRESS=redis
+      - REDIS_PORT=6379
+      - NUM_WSGI_WORKERS=2
+    ports:
+      # Bound strictly to 127.0.0.1 to maintain total isolation from lab network
+      - "127.0.0.1:5000:5000"
+    depends_on:
+      - opensearch
+      - postgres
+      - redis
+    volumes:
+      - timesketch-upload:/usr/share/timesketch/upload
+    restart: unless-stopped
+
+  timesketch-worker:
+    image: us-docker.pkg.dev/osdfir-registry/timesketch/timesketch:20260630
+    container_name: dfir-timesketch-worker
+    command: ["celery", "-A", "timesketch.bin.celery_worker", "worker", "--loglevel=INFO", "-c", "2"]
+    environment:
+      - POSTGRES_USER=timesketch
+      - POSTGRES_PASSWORD=timesketch_dev_secret
+      - POSTGRES_ADDRESS=postgres
+      - POSTGRES_PORT=5432
+      - OPENSEARCH_HOST=opensearch
+      - OPENSEARCH_PORT=9200
+      - REDIS_ADDRESS=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - opensearch
+      - postgres
+      - redis
+    volumes:
+      - timesketch-upload:/usr/share/timesketch/upload
+    restart: unless-stopped
+
+volumes:
+  opensearch-data:
+  postgres-data:
+  timesketch-upload:

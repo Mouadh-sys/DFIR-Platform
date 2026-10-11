@@ -1,0 +1,24 @@
+# Environment variables & secrets
+.env
+.env.*
+*vault*
+
+# DFIR Evidence store and working pipelines
+evidence/
+work/
+results/
+
+# Python cache & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# IDE & OS
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
