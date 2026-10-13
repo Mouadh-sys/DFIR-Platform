@@ -1,0 +1,99 @@
+case_id: C01
+scenario: linux-web-server-compromise-emulation
+schema_version: 2
+safety_profile: synthetic-data; isolated-libvirt-network; one-linux-guest; no-live-malware; no-external-c2; non-destructive
+clock: UTC
+lab:
+  host_bridge: 10.10.10.1
+  victim: SRV-WEB-01
+  victim_ip: 10.10.10.30
+  guest_gateway: none
+notes:
+  - This is a one-guest compromise emulation. The Pop!_OS host is the controlled activity driver and DFIR host.
+  - Initial access, exfiltration, and defense-evasion rows are markers only; do not describe them as successfully executed attacks.
+  - No actual lateral pivot, credential theft, log clearing, or real data exfiltration is performed.
+steps:
+  - id: S01
+    name: Inbound web activity marker
+    attack_technique: T1190
+    execution_status: emulated_marker_only
+    action: Host sends a finite GET to the guest nginx landing page; no exploit or vulnerable service is used.
+    expected_sources: [nginx-access-log, PCAP-if-visible, run-ground-truth]
+    destructive: false
+  - id: S02
+    name: Benign shell execution marker
+    attack_technique: T1059.004
+    execution_status: executed_benign_behavior
+    action: Disposable guest user runs a benign diagnostic that writes DFIR-LAB-S02 and OS information to a log file.
+    expected_sources: [auditd-execve, journald, shell-history-if-enabled, file-metadata]
+    destructive: false
+  - id: S03
+    name: HTTP callback-like traffic
+    attack_technique: T1071.001
+    execution_status: emulated_network_behavior
+    action: Guest sends a finite series of GET requests to http://10.10.10.1:8888/health; endpoint accepts no commands or uploads.
+    expected_sources: [PCAP, host-health-log, Zeek-conn.log, Zeek-http.log]
+    destructive: false
+  - id: S04
+    name: System discovery
+    attack_technique: T1082
+    execution_status: executed_benign_behavior
+    action: Run a reviewed Linux-supported Atomic test or harmless uname/hostname diagnostic.
+    expected_sources: [auditd-execve, journald, Velociraptor-triage]
+    destructive: false
+  - id: S05
+    name: Account discovery
+    attack_technique: [T1033, T1087.001]
+    execution_status: executed_benign_behavior
+    action: Inspect the local lab account list with a reviewed low-impact command or Linux Atomic test; do not scan outside the lab.
+    expected_sources: [auditd-execve, journald, run-ground-truth]
+    destructive: false
+  - id: S06
+    name: Synthetic credential-file access
+    attack_technique: T1552.001
+    execution_status: emulated_with_canary
+    action: Read /opt/dfir-demo/markers/credential-canary.txt, which contains no real credentials.
+    expected_sources: [auditd-if-rule-matches, file-access-context, run-ground-truth]
+    destructive: false
+  - id: S07
+    name: Private-key discovery marker
+    attack_technique: T1552.004
+    execution_status: emulated_with_dummy_artifact
+    action: Read a deliberately planted non-authorized dummy key-shaped file only if needed; never use a real key.
+    expected_sources: [auditd-if-rule-matches, file-metadata, run-ground-truth]
+    destructive: false
+  - id: S08
+    name: Temporary cron persistence behavior
+    attack_technique: T1053.003
+    execution_status: executed_with_cleanup
+    action: Add a temporary cron entry that only writes a timestamp to /tmp/dfir-lab-cron.log, verify it, then remove it.
+    expected_sources: [auditd-cron-watch, cron-log, file-metadata, Velociraptor-triage]
+    destructive: low; cleanup-required
+  - id: S09
+    name: Collection and archive of synthetic records
+    attack_technique: T1560.001
+    execution_status: executed_benign_behavior
+    action: Copy only /opt/dfir-demo/finance-demo.db to a lab staging folder and archive the copy.
+    expected_sources: [auditd-execve, file-metadata, archive-hash, run-ground-truth]
+    destructive: false
+  - id: S10
+    name: Data staging
+    attack_technique: T1074.001
+    execution_status: executed_benign_behavior
+    action: Place the synthetic archive in a separate staging directory and record its hash; no real data is included.
+    expected_sources: [auditd-execve, file-metadata, SHA256-manifest]
+    destructive: false
+  - id: S11
+    name: Exfiltration behavior marker
+    attack_technique: T1041
+    execution_status: emulated_marker_only
+    action: Record a marker that an exfiltration attempt was simulated; no file upload or external transfer occurs.
+    expected_sources: [run-ground-truth, marker-log, PCAP-if-applicable]
+    destructive: false
+  - id: S12
+    name: Defense-evasion marker
+    attack_technique: T1070.003
+    execution_status: emulated_marker_only
+    action: Log a simulated attempt to clear history/logs and verify previously collected independent logs remain available; do not clear logs/history.
+    expected_sources: [auditd, journald, Velociraptor-collected-copy, run-ground-truth]
+    destructive: false

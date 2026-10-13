@@ -76,9 +76,7 @@ digests and the official ISO checksums are mandatory additions to this file.
 4. Existing libvirt guests and the autostarted `default` network must not be changed
    implicitly. M1 will define only the new `lab-isolated` network and will require
    explicit approval before host firewall or libvirt changes.
-5. The existing `docs/architecture.md` is a large lowercase specification. The required
-   milestone records use `docs/ARCHITECTURE.md`; both will be kept consistent until the
-   documentation naming is normalized deliberately.
+
 
 ### Milestone gates
 

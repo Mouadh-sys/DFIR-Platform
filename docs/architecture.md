@@ -1,14 +1,14 @@
 # DFIR Platform: Specification & Architecture&#32;
 
-Sep 29, 2026&#32;
+Oct 13, 2026&#32;
 
 ## 1. Overview
 
-The project delivers a self-hosted DFIR platform that runs a simulated incident in an isolated lab, collects the evidence, processes it and produces the incident report required by Project 4. The platform is the tool; the investigation of the simulated incident remains the graded result.
+The project delivers a self-hosted DFIR platform that runs a **Linux web-server compromise emulation** in an isolated lab, collects the evidence, processes it and produces the incident report. The platform is the tool; the investigation of the simulated incident remains the graded result.
 
 **Objectives**
 
-1. Reproduce a realistic intrusion (Windows workstation, then a pivot to a Linux web server) in an isolated, rebuildable lab.
+1. Reproduce a realistic Linux web-server compromise in an isolated, rebuildable lab.
 2. Acquire memory, disk artifacts, logs and network traffic with a documented chain of custody.
 3. Process evidence automatically into a single timeline, an IOC list and YARA hits.
 4. Manage the investigation as a case: evidence, IOCs, tasks, timeline, notes.
@@ -25,7 +25,7 @@ The project delivers a self-hosted DFIR platform that runs a simulated incident 
 | Network | Lab fully isolated from the Internet and the host LAN during the incident |
 | Budget | Open-source and free evaluation software only |
 
-**Out of scope:** live malware from the wild, cloud deployment, Terraform, multi-user production hardening, GPU acceleration.
+**Out of scope:** live malware from the wild, cloud deployment, Terraform, multi-user production hardening, GPU acceleration, Windows analysis, cross-platform memory comparison.
 
 ## 2. High-level architecture
 
@@ -33,29 +33,28 @@ The platform is structured into five distinct layers arranged in a one-way pipel
 
 ```mermaid
 flowchart TB
-    ANS["Ansible playbooks<br/>build VMs + services, then clean snapshot"]
+    ANS["Ansible playbooks<br/>build VM + services, then clean snapshot"]
 
     subgraph LAB["1 · Isolated lab: libvirt 10.10.10.0/24, no Internet (phase 1)"]
         direction LR
-        WIN["Windows victim WS-FIN-01<br/>Sysmon, audit policy, Velociraptor client"]
         LNX["Linux server SRV-WEB-01<br/>nginx, SSH, auditd, Velociraptor client"]
-        ATK["Attack simulation<br/>Atomic Red Team / Caldera"]
-        ATK -->|executes on| WIN
-        WIN -->|SSH pivot| LNX
+        ATK["Attack simulation<br/>Atomic Red Team (Linux)"]
+        ATK -->|executes on| LNX
     end
 
     subgraph COL["2 · Collection (phase 1)"]
         direction LR
-        VELO["Velociraptor server<br/>artifacts, logs, WinPmem, AVML"]
+        VELO["Velociraptor server<br/>artifacts, logs, AVML"]
         VIRSH["Hypervisor dump<br/>virsh memory dump"]
         PCAP["tcpdump on virbr-lab<br/>PCAP files"]
+        HEALTH["Health endpoint<br/>10.10.10.1:8888"]
     end
 
     STORE[("Evidence store<br/>read-only, SHA-256 manifest,<br/>chain-of-custody log")]
 
     subgraph PROC["3 · Processing, one job at a time (phase 2)"]
         direction LR
-        VOL["Volatility 3<br/>memory analysis"]
+        VOL["Volatility 3<br/>Linux memory analysis"]
         PLASO["Plaso + Zeek<br/>super-timeline, network logs"]
         YARA["YARA + IOC extraction"]
     end
@@ -88,31 +87,30 @@ flowchart TB
     classDef ctl fill:#f3f4f6,stroke:#6b7280,stroke-dasharray:4 3
     class STORE store
     class CTL ctl
-
 ```
 
-**Two-phase operating model.** Layers 1–2 run only during the incident (phase 1, about 10.5 GB RAM). Both victims are then shut down after acquisition, which frees RAM for layers 3–4 (phase 2, about 12–14 GB). Powering off the victim after acquisition is also correct forensic practice, so the hardware limit and the methodology agree.
+**Two-phase operating model.** Layers 1–2 run only during the incident (phase 1, ~6–8 GB RAM). The Linux guest is shut down after acquisition, which frees RAM for layers 3–4 (phase 2, about 10–12 GB). Powering off the victim after acquisition is correct forensic practice, so the hardware limit and the methodology agree.
 
-**Runtime placement.** Only the two victims are VMs. Velociraptor, Caldera, Timesketch and DFIR-IRIS run as Docker Compose stacks on the Pop!\_OS host; Volatility 3, Plaso, Zeek and YARA run as host tools or one-shot containers launched by `dfirctl`.
+**Runtime placement.** Only the Linux victim is a VM. Velociraptor, Timesketch and DFIR-IRIS run as Docker Compose stacks on the Pop!\_OS host; Volatility 3, Plaso, Zeek and YARA run as host tools or one-shot containers launched by `dfirctl`. The Pop!_OS host acts as the controlled activity driver and DFIR collection/analysis host.
 
 ## 3. Requirements
 
-Thirteen functional requirements cover the brief's six technical requirements; the non-functional ones come from the hardware and the grading criterion.
+Twelve functional requirements cover the technical requirements; the non-functional ones come from the hardware and the grading criterion.
 
 **Functional**
 
 | ID | Requirement | Brief requirement covered |
 | --- | --- | --- |
-| FR-01 | Build the lab (victim VM, isolated network, services) from Ansible in one command | Preparation |
+| FR-01 | Build the lab (Linux guest, isolated network, services) from Ansible in one command | Preparation |
 | FR-02 | Restore the victim to a clean snapshot before each scenario run | Preparation |
-| FR-03 | Execute a scripted attack scenario mapped to MITRE ATT&CK | Simulated incident |
+| FR-03 | Execute a scripted Linux attack scenario mapped to MITRE ATT&CK | Simulated incident |
 | FR-04 | Capture all lab network traffic to PCAP for the whole scenario | Network investigation |
-| FR-05 | Acquire memory in-guest (WinPmem on Windows, AVML on Linux) and from the hypervisor (virsh dump) | Evidence collection |
-| FR-06 | Collect event logs, Sysmon, registry, prefetch, MFT and other triage artifacts from Windows, plus auth.log, bash history, auditd and cron from Linux, via Velociraptor | Evidence collection |
+| FR-05 | Acquire memory in-guest (AVML on Linux) and from the hypervisor (virsh dump) | Evidence collection |
+| FR-06 | Collect journald, auth.log, auditd, nginx, cron and bash history from Linux via Velociraptor | Evidence collection |
 | FR-07 | Hash every evidence item (SHA-256) at acquisition and log custody events | Evidence preservation |
 | FR-08 | Run Volatility 3, Plaso, Zeek and YARA on evidence copies, one job at a time | Log, file and malware analysis |
-| FR-09 | Merge all sources into one timeline in Timesketch | Timeline construction |
-| FR-10 | Extract IOCs (hashes, IPs, domains, paths, registry keys) and push them to DFIR-IRIS | IOC identification |
+| FR-09 | Merge all sources into one timeline in Timesketch (or CSV fallback) | Timeline construction |
+| FR-10 | Extract IOCs (hashes, IPs, domains, paths) and push them to DFIR-IRIS | IOC identification |
 | FR-11 | Record findings with their ATT&CK technique and evidence reference | Incident classification |
 | FR-12 | Generate the incident report draft (Markdown → PDF) from the case data | Report |
 | FR-13 | Document containment, eradication and recovery actions in the report | Mitigation plan |
@@ -130,56 +128,51 @@ Thirteen functional requirements cover the brief's six technical requirements; t
 
 ## 4. Component architecture
 
-Seventeen components, two VMs; everything else is a container or a host tool. RAM figures are working estimates to validate in week 2.
+Fifteen components, one VM; everything else is a container or a host tool. RAM figures are working estimates to validate in week 2.
 
 | Layer | Component | Role | Runtime | RAM (approx.) | Phase |
 | --- | --- | --- | --- | --- | --- |
-| Lab | Windows 10/11 Enterprise eval | Victim endpoint | KVM VM, 2 vCPU | 4 GB | 1 |
-| Lab | Ubuntu Server 24.04 (nginx, OpenSSH, auditd) | Pivot target: internal web server | KVM VM, 1 vCPU | 1 GB | 1 |
-| Lab | Sysmon (sysmon-modular config) | Endpoint telemetry | Service in victim | in VM | 1 |
-| Lab | Atomic Red Team | Executes ATT&CK techniques | PowerShell in victim | in VM | 1 |
-| Lab | Caldera (optional) | C2-style scenario orchestration | Docker on host | 0.5 GB | 1 |
+| Lab | Ubuntu Server 24.04 (nginx, OpenSSH, auditd) | Victim: internal web server | KVM VM, 2 vCPU | 2 GB | 1 |
+| Lab | Atomic Red Team | Executes ATT&CK techniques | PowerShell Core in victim | in VM | 1 |
 | Lab | tcpdump | Full packet capture on the lab bridge | Host process | < 0.1 GB | 1 |
+| Lab | lab_health_server.py | Fixed health endpoint for callback simulation | Host process | < 0.1 GB | 1 |
 | Collection | Velociraptor server | Remote artifact and memory collection | Docker or single binary | 0.5 GB | 1 + 2 |
 | Collection | virsh dump | Hypervisor-level memory acquisition | Host CLI | transient | 1 |
 | Collection | AVML | In-guest Linux memory acquisition | Pushed and run by Velociraptor | transient | 1 |
-| Processing | Volatility 3 | Memory analysis | Host (Python venv) | 1–2 GB | 2 |
+| Processing | Volatility 3 | Linux memory analysis | Host (Python venv) | 1–2 GB | 2 |
 | Processing | Plaso (log2timeline, psort) | Super-timeline from artifacts | Docker one-shot | 2–4 GB | 2 |
 | Processing | Zeek | PCAP to connection, DNS, HTTP logs | Docker one-shot | < 1 GB | 2 |
 | Processing | YARA | Rule scanning of files and memory | Host CLI | < 0.5 GB | 2 |
-| Case | Timesketch | Timeline search and tagging | Docker Compose, OpenSearch heap capped at 1.5 GB | \~5 GB | 2 |
-| Case | DFIR-IRIS | Case, evidence register, IOCs, tasks | Docker Compose | \~1.5 GB | 1 + 2 |
+| Case | Timesketch | Timeline search and tagging | Docker Compose, OpenSearch heap capped at 1.5 GB | ~5 GB | 2 |
+| Case | DFIR-IRIS | Case, evidence register, IOCs, tasks | Docker Compose | ~1.5 GB | 1 + 2 |
 | Orchestration | dfirctl | Drives phases, ingestion, jobs, reporting | Python 3 on host | < 0.3 GB | 1 + 2 |
 | Reporting | Jinja2 + Pandoc | Report draft from case data | Host | < 0.2 GB | 2 |
 
-**Deliberately excluded:** Wazuh (indexer alone needs \~4 GB; Sysmon + Velociraptor cover the telemetry), MISP (IRIS holds the IOCs), a separate attacker VM (Atomic Red Team runs on the victim), GPU acceleration (no tool in the stack uses it).
+**Deliberately excluded:** Windows victim, Sysmon, WinPmem, Caldera, Wazuh (indexer alone needs ~4 GB; Velociraptor covers the telemetry), MISP (IRIS holds the IOCs), GPU acceleration (no tool in the stack uses it).
 
 ## 5. Lab network and isolation
 
-Both victims sit on a libvirt **isolated** network: they can reach each other and the host's bridge address, nothing else. Traffic between the two VMs is switched on the bridge, so tcpdump on the bridge still records the lateral movement. Host-side nftables rules narrow that further to the few ports the platform needs.
+The single Linux victim sits on a libvirt **isolated** network: it can reach the host's bridge address, nothing else. Host-side nftables rules narrow that further to the few ports the platform needs.
 
 | Element | Value |
 | --- | --- |
 | libvirt network | `lab-isolated`, mode isolated, no NAT, no DHCP forwarding |
 | Subnet | 10.10.10.0/24 |
 | Host bridge address | 10.10.10.1 (`virbr-lab`) |
-| Windows victim | 10.10.10.20, static, hostname `WS-FIN-01` |
 | Linux server | 10.10.10.30, static, hostname `SRV-WEB-01` |
 | DNS for the victims | 10.10.10.1 (dnsmasq, logs every query) |
-| Capture point | tcpdump on `virbr-lab`, host side, so neither victim can see or stop it |
+| Capture point | tcpdump on `virbr-lab`, host side, so the victim cannot see or stop it |
 
 **Allowed flows (everything else dropped and logged)**
 
 | From | To | Port | Purpose | When |
 | --- | --- | --- | --- | --- |
-| Host | Windows victim | 5986/tcp (WinRM HTTPS) | Ansible provisioning | Provisioning only; closed before the clean snapshot |
 | Host | Linux server | 22/tcp | Ansible provisioning | Provisioning only; host key removed before the clean snapshot |
-| Windows victim | Linux server | 22/tcp, 80/tcp | Normal user access to the internal app; the attacker's pivot path | Phase 1 |
-| Both victims | Host 10.10.10.1 | 8000/tcp | Velociraptor client → server | Phases 1 and 2 |
-| Both victims | Host 10.10.10.1 | 53/udp | DNS (logged) | Phase 1 |
-| Windows victim | Host 10.10.10.1 | 8888/tcp | Caldera agent (only if Caldera is used) | Phase 1 |
+| Linux server | Host 10.10.10.1 | 8000/tcp | Velociraptor client → server | Phases 1 and 2 |
+| Linux server | Host 10.10.10.1 | 53/udp | DNS (logged) | Phase 1 |
+| Linux server | Host 10.10.10.1 | 8888/tcp | Health endpoint callbacks (T1071.001 emulation) | Phase 1 |
 
-Web UIs (Velociraptor GUI, Timesketch, DFIR-IRIS, Caldera) bind to 127.0.0.1 on the host, never to the lab bridge, so the victim cannot reach the investigation tools. Tool downloads happen on the host and are copied in during provisioning; the victim never gets Internet access.
+Web UIs (Velociraptor GUI, Timesketch, DFIR-IRIS) bind to 127.0.0.1 on the host, never to the lab bridge, so the victim cannot reach the investigation tools. Tool downloads happen on the host and are copied in during provisioning; the victim never gets Internet access.
 
 ## 6. Evidence lifecycle and chain of custody
 
@@ -203,7 +196,7 @@ Every item is hashed the moment it lands, stored read-only, and only ever proces
 | evidence\_id | C01-E003-MEM |
 | action | acquired, registered, copied, processed, verified, exported |
 | actor | student account name |
-| tool + version | WinPmem 4.x via Velociraptor |
+| tool + version | AVML via Velociraptor |
 | sha256 | full hash |
 | note | free text, for example "victim shut down after acquisition" |
 
@@ -217,10 +210,10 @@ The custody log itself is hashed at the end of each session, and that hash is wr
 
 | Command | What it does |
 | --- | --- |
-| `dfirctl phase incident` | Stops phase-2 stacks, starts Velociraptor + IRIS (+ Caldera), restores the clean snapshot, starts the victim and tcpdump |
+| `dfirctl phase incident` | Stops phase-2 stacks, starts Velociraptor + IRIS, restores the clean snapshot, starts the victim and tcpdump |
 | `dfirctl scenario run <name>` | Runs the scenario's ATT&CK steps and logs start/end times of each step as ground truth |
-| `dfirctl collect` | Launches Velociraptor collections (triage + WinPmem), then `virsh dump` of the victim's memory |
-| `dfirctl phase analysis` | Stops tcpdump, shuts down the victim, stops Caldera, starts Timesketch |
+| `dfirctl collect` | Launches Velociraptor collections (triage + AVML), then `virsh dump` of the victim's memory |
+| `dfirctl phase analysis` | Stops tcpdump, shuts down the victim, starts Timesketch |
 | `dfirctl ingest` | Hashes, registers and freezes everything in `evidence/incoming/` |
 | `dfirctl process [--only vol,plaso,zeek,yara]` | Runs the parser queue sequentially on working copies |
 | `dfirctl push` | Uploads the Plaso timeline to Timesketch; pushes evidence, IOCs and findings to IRIS via its API |
@@ -235,7 +228,7 @@ The custody log itself is hashed at the end of each session, and that hash is wr
 | `evidence.py` | Hashing, evidence IDs, freeze, custody log |
 | `jobs.py` | Sequential job queue, working copies, tool version capture, output paths |
 | `parsers/` | One adapter per tool: Volatility 3 plugins, Plaso, Zeek, YARA |
-| `iocs.py` | IOC extraction and normalisation from parser outputs (IPs, domains, hashes, paths, registry keys) |
+| `iocs.py` | IOC extraction and normalisation from parser outputs (IPs, domains, hashes, paths) |
 | `integrations/` | Velociraptor API (gRPC), Timesketch API client, DFIR-IRIS REST API |
 | `report.py` | Report templates and rendering |
 | `config.py` | One YAML file: paths, case ID, credentials from environment variables |
@@ -244,8 +237,8 @@ The custody log itself is hashed at the end of each session, and that hash is wr
 
 ```text
 dfir-platform/
-├── ansible/            # inventory, roles: host, victim, services
-├── compose/            # velociraptor, iris, timesketch, caldera (profiles)
+├── ansible/            # inventory, roles: host, lab_network, services, server
+├── compose/            # velociraptor, iris, timesketch (profiles)
 ├── libvirt/            # network XML, VM definition
 ├── dfirctl/            # Python package (modules above)
 ├── scenarios/          # scenario YAML: ATT&CK steps + expected artifacts
@@ -266,39 +259,37 @@ Ansible builds the environment; `dfirctl` runs the investigation. Nothing forens
 | `host` | Pop!\_OS laptop | KVM/libvirt, Docker, Python venv, Volatility 3, YARA, Pandoc, nftables rules, evidence partition mount |
 | `lab_network` | Host | Define and start `lab-isolated`, dnsmasq query logging |
 | `services` | Host | Deploy Compose stacks with profiles; cap OpenSearch heap; bind UIs to 127.0.0.1 |
-| `victim` | Windows VM over WinRM | Static IP, Sysmon + config, audit policy, PowerShell script block and module logging, Velociraptor client, Atomic Red Team, scenario user accounts |
-| server | Ubuntu VM over SSH | Static IP, nginx + small internal app with a SQLite database of dummy records, OpenSSH, auditd rules (execve, cron, SSH config), timestamped bash history, Velociraptor Linux client; plants the SSH key the scenario later finds on the workstation |
+| `server` | Ubuntu VM over SSH | Static IP, nginx + small internal app with a SQLite database of dummy records, OpenSSH, auditd rules (execve, cron, SSH config), timestamped bash history, Velociraptor Linux client; plants canary files and synthetic data under `/opt/dfir-demo` |
 
 **Snapshot strategy**
 
-1. Install Windows from the evaluation ISO, enable WinRM, snapshot `base`.
-2. Run the `victim` role, disable WinRM, reboot, snapshot `clean`.
-3. Both VMs follow these steps (the server over SSH), and every scenario run starts from `clean`.
+1. Run the `server` role, shut down, snapshot `clean`.
+2. Every scenario run starts from `clean`.
 
-Provisioning leaves its own traces on the victim (WinRM logons, PowerShell logs, files under the Ansible user's profile). Because they all predate `clean`, any that appear in the timeline are listed in the report as known benign baseline activity. The playbooks double as the documented baseline of the victim's normal state.
+Provisioning leaves its own traces on the victim (SSH logons, files under the Ansible user's profile). Because they all predate `clean`, any that appear in the timeline are listed in the report as known benign baseline activity. The playbooks double as the documented baseline of the victim's normal state.
 
 ## 9. Incident scenario
 
-**Scenario "Finance workstation compromise":** a finance user runs a malicious attachment, the attacker establishes persistence, dumps credentials, finds an SSH key, pivots to the internal Linux web server and persists there, stages data, exfiltrates it over the C2 channel, then clears the Security log. Each step leaves evidence in at least two sources, so the investigation can cross-check.
+**Scenario "Linux web-server compromise emulation":** the Pop!_OS host acts as the controlled activity driver; there is no Windows workstation and no genuine lateral-movement step. This limitation must be stated in the report.
 
 | # | Step | ATT&CK technique | How it is simulated | Expected evidence |
 | --- | --- | --- | --- | --- |
-| 1 | Initial access | T1566.001 Spearphishing Attachment | Payload placed in the user's Downloads and executed by the user account | MFT entry, Zone.Identifier stream, Sysmon 1 (process create), prefetch |
-| 2 | Execution | T1059.001 PowerShell | Encoded PowerShell launcher | Sysmon 1, PowerShell 4104 script block, memory: PowerShell process and command line |
-| 3 | Command and control | T1071.001 Web Protocols | Caldera agent beacons to 10.10.10.1:8888 | PCAP, Zeek http.log and conn.log, Sysmon 3 (network), Volatility netscan |
-| 4 | Persistence (Windows) | T1547.001 Registry Run Keys; T1053.005 Scheduled Task | Atomic Red Team tests | Registry hive, Sysmon 13, task XML file, Security 4698 |
-| 5 | Discovery | T1082 System Information Discovery; T1087.001 Local Account; T1018 Remote System Discovery | Atomic Red Team tests, plus a ping sweep that finds 10.10.10.30 | Sysmon 1 command lines, PowerShell 4104, PCAP / Zeek conn.log |
-| 6 | Credential access | T1003.001 LSASS Memory | Atomic test creating an LSASS dump file | Sysmon 10 (process access), dump file on disk, memory artifacts |
-| 7 | Credential access | T1552.004 Private Keys | Attacker reads the SSH private key left in the user's `.ssh` folder | Sysmon 1 and PowerShell 4104 showing the file access, MFT |
-| 8 | Lateral movement | T1021.004 Remote Services: SSH | `ssh.exe` from the workstation to 10.10.10.30 with the stolen key | Windows: Sysmon 1 and 3; server: auth.log "Accepted publickey", auditd; PCAP / Zeek ssh.log |
-| 9 | Persistence (Linux) | T1053.003 Cron | Crontab entry that calls back every 10 minutes | Crontab file, syslog CRON lines, auditd, bash history, server memory (AVML / virsh) |
-| 10 | Collection | T1560.001 Archive via Utility | Copy the app's SQLite database back with scp; archive it with dummy finance files | Server: auth.log, bash history; Windows: archive file, Sysmon 11, MFT timestamps; Zeek conn.log |
-| 11 | Exfiltration | T1041 Exfiltration Over C2 Channel | Upload the archive through the Caldera agent | PCAP volume spike, Zeek files.log, conn.log bytes |
-| 12 | Defense evasion | T1070.001 Clear Windows Event Logs; T1070.003 Clear Command History | `wevtutil cl Security` on Windows; `history -c` on the server | Security 1102, System 104; auditd execve records and Velociraptor copies survive on both hosts |
+| 1 | Inbound web activity marker | T1190 (emulated) | Finite GET to guest nginx from host | nginx access.log, PCAP, auditd execve |
+| 2 | Shell execution | T1059.004 | Disposable lab user runs benign diagnostic; writes DFIR-LAB-S02 | auditd execve, bash history, journald |
+| 3 | HTTP callback-like traffic | T1071.001 (emulated) | Guest issues GET to http://10.10.10.1:8888/health | PCAP, Zeek http.log, health endpoint log |
+| 4 | System discovery | T1082 | Approved Atomic test or harmless uname/hostname | auditd execve, process tree, PCAP |
+| 5 | Account discovery | T1033 / T1087.001 | Low-impact test inspecting lab user/account list | auditd execve, auth.log |
+| 6 | Synthetic credential-file access | T1552.001 (emulated) | Read canary at /opt/dfir-demo/markers/credential-canary.txt | auditd file access (dfir_demo_data), Velociraptor file collection |
+| 7 | Private-key discovery marker | T1552.004 (emulated) | Read planted non-authorized dummy file if required | auditd file access, Velociraptor file collection |
+| 8 | Cron persistence behavior | T1053.003 | Temporary cron entry writes timestamp to /tmp/dfir-lab-cron.log | crontab, syslog CRON, auditd execve, bash history |
+| 9 | Collection/archive | T1560.001 | Copy /opt/dfir-demo/finance-demo.db to staging dir and archive | auditd, bash history, file metadata |
+| 10 | Data staging | T1074.001 | Separate staging dir; record hashes for synthetic archive | auditd, file metadata, hash log |
+| 11 | Exfiltration behavior marker | T1041 (emulated only) | Explicit marker logged; health endpoint cannot accept uploads | marker in ground truth, PCAP shows only GET |
+| 12 | Defense-evasion marker | T1070.003 (emulated only) | Write marker for attempted history/log clearing; verify prior logs remain | auditd execve, Velociraptor copies survive |
 
-**Ground truth.** `dfirctl scenario run` records the exact start and end time of every step in a sealed file that is not opened until the analysis is finished. Comparing the reconstructed timeline against it gives a measurable detection result for the report.
+**Ground truth.** `dfirctl scenario run` records the exact start and end time of every step in `case/ground-truth-sealed.jsonl` that is not opened until the analysis is finished. Comparing the reconstructed timeline against it gives a measurable detection result for the report.
 
-**Lab settings to document:** Microsoft Defender real-time protection is disabled on the victim for step 6, and all dummy data is synthetic. No real malware is used.
+**Lab settings to document:** All dummy data is synthetic. No real malware is used. The Pop!_OS host is the controlled activity driver/collector (stated limitation).
 
 ## 10. Securing the platform
 
@@ -306,7 +297,7 @@ This is the week 3 "secure" deliverable: the platform holds sensitive evidence a
 
 | Threat | Control | How it is verified |
 | --- | --- | --- |
-| Compromised victim attacks the platform | Isolated network; nftables allow-list (section 5); UIs on 127.0.0.1 only | A port scan from the victim (Test-NetConnection) shows only 8000/tcp (and 8888/tcp if Caldera runs) |
+| Compromised victim attacks the platform | Isolated network; nftables allow-list (section 5); UIs on 127.0.0.1 only | A port scan from the victim shows only 8000/tcp and 8888/tcp |
 | Victim escapes to the Internet or home LAN | libvirt isolated mode, no NAT; nftables drop + log | Ping and curl from the victim to external addresses fail; drops appear in the log |
 | Evidence tampering | Read-only originals, `chattr +i`, SHA-256 manifest, chained custody log | `dfirctl verify` passes; a deliberately modified copy is detected |
 | Weak or default credentials on tools | Unique generated passwords in an Ansible Vault file; defaults removed | Login with vendor defaults fails on every UI |
@@ -319,16 +310,23 @@ This is the week 3 "secure" deliverable: the platform holds sensitive evidence a
 
 The plan follows the course's weekly cycle (design, implement, secure, test, improve, deliver). Week 4 is the only week that cannot be redone cheaply, so weeks 1–3 end with a full dry run.
 
-&#91;embedded content: Six-week plan · one gate per week\]
+If a gate slips, cut optional scope in this order: DFIR-IRIS, full Ansible/`dfirctl` automation, Timesketch UI (use CSV), then advanced memory analysis. Do not cut isolation proof, evidence hashing/custody, ground truth, timeline, report, or an end-to-end demo.
 
-If a gate slips, cut optional scope first (Caldera, then Zeek), never the evidence rules or the report.
+**Six-week milestones**
+
+- **Week 1 — One-guest lab:** isolated network, Linux guest, auditd/journald/SSH/nginx, synthetic data, Velociraptor client, clean snapshot.
+- **Week 2 — Acquisition and custody:** PCAP pilot, Velociraptor triage, optional AVML test, evidence ingest/verify and restore/backup test.
+- **Week 3 — Scenario dry run:** twelve safe/emulated steps, ground truth, cleanup, expected artifacts and acceptance checks.
+- **Week 4 — Analysis:** Plaso, Zeek, YARA, optional Volatility; export normalized CSV; Timesketch only if memory allows.
+- **Week 5 — Findings/report:** IOC register, findings, timeline correlation, mitigation and PDF render.
+- **Week 6 — Hardening/demo:** full clean-snapshot run, RAM measurements, Lynis/gitleaks, integrity/custody tamper tests, recorded demo and final submission.
 
 **Mapping to the course deliverables**
 
 | Course deliverable | Produced by the platform as |
 | --- | --- |
 | Incident report | `dfirctl report` output, edited by hand, with ATT&CK-mapped findings |
-| Timeline + IOCs | Timesketch export of tagged events; IOC list exported from DFIR-IRIS |
+| Timeline + IOCs | Timesketch export of tagged events (or Plaso CSV fallback); IOC list exported from DFIR-IRIS |
 | Evidence and hashes | Evidence manifest, custody log, `dfirctl verify` output |
 | Mitigation plan + presentation | Containment, eradication and recovery section; live demo of the pipeline end to end |
 | Technical proof (all projects) | Screenshots, PCAP, Volatility outputs, Lynis before/after, test results from section 12 |
@@ -340,17 +338,17 @@ The project is accepted when every row below passes and the result is shown with
 | ID | Test | Pass condition |
 | --- | --- | --- |
 | AT-01 | Full rebuild from an empty host | `ansible-playbook site.yml` then `dfirctl phase incident` succeed without manual steps |
-| AT-02 | Network isolation | Victim cannot reach 1.1.1.1 or the home router; only allowed ports open on 10.10.10.1 |
+| AT-02 | Network isolation | Guest cannot reach 1.1.1.1 or the home router; no NAT NIC or forwarding; save XML/route/connection-test proof |
 | AT-03 | Memory budget | Peak host RAM below 14 GB in each phase (`free -h` / `vmstat` log) |
 | AT-04 | Evidence integrity | `dfirctl verify` passes; flipping one byte in a copy is detected; originals are immutable |
-| AT-05 | Custody chain | Editing a past custody entry breaks the session hash chain and is reported |
+| AT-05 | Custody chain | Editing a *copied* custody entry breaks the session hash chain and is reported |
 | AT-06 | Unit tests | `pytest` passes for hashing, evidence IDs, custody log and each parser adapter on sample data |
-| AT-07 | Detection coverage | At least 11 of the 12 scenario steps are found in the timeline with supporting evidence |
-| AT-08 | Timing accuracy | Each found step is placed within 2 minutes of the ground-truth time |
-| AT-09 | Log-clearing resilience | Step 12 is detected on both hosts, and the activity before it is still reconstructed from Sysmon, auditd and Velociraptor copies |
-| AT-10 | Memory cross-check | Malicious PowerShell and C2 connection found in both the WinPmem and the virsh memory images |
-| AT-11 | Report completeness | Report contains timeline, IOCs, hashes, ATT&CK mapping, root cause, impact and mitigation plan |
-| AT-12 | Demo | End-to-end run shown live or from a recorded run, in the time slot the course allows |
+| AT-07 | Detection coverage | At least 10 of 12 scenario steps have supporting timeline evidence; prefer two sources where available |
+| AT-08 | Timing accuracy | Each found step is placed within 2 minutes of the ground-truth time where source precision permits |
+| AT-09 | Log-resilience simulation | The non-destructive evasion marker is detected and independently collected logs remain available |
+| AT-10 | Memory | If AVML and hypervisor dump are acquired and supported, compare relevant artifacts; otherwise document which acquisition/format/plugin was unavailable |
+| AT-11 | Report completeness | Report contains timeline, evidence hashes/custody, IOCs, ATT&CK labels, root cause/impact and mitigation |
+| AT-12 | Demo | End-to-end run shown live or from a recorded run; include isolation and integrity proofs |
 
 ## 13. Risks and mitigations
 
@@ -358,12 +356,11 @@ The biggest risk is spending the six weeks on infrastructure and too little on t
 
 | Risk | Likelihood | Impact | Mitigation |
 | --- | --- | --- | --- |
-| Infrastructure eats the schedule | High | High | Week 2 gate; drop Caldera, then Zeek, if late; the investigation scope stays fixed |
-| Timesketch / OpenSearch runs out of memory | Medium | Medium | Heap capped at 1.5 GB; victim off in phase 2; fallback: Plaso CSV output reviewed in Timeline Explorer or a spreadsheet |
-| Disk fills during processing | Medium | High | \~250 GB on a dedicated partition; delete work copies after each job; `df` check in `dfirctl` before each job |
-| Volatility 3 cannot read the virsh dump format | Medium | Low | Test in week 2 with a small dump; WinPmem image remains the primary memory source |
-| Scenario step fails silently (Defender, typo, timing) | Medium | Medium | Dry run in week 3; ground-truth file records each step's exit status |
-| Windows evaluation licence expires | Low | Medium | 90-day evaluation covers the 6 weeks; the `base` snapshot allows a fresh install |
+| Infrastructure eats the schedule | High | High | Week 2 gate; drop DFIR-IRIS, then full Ansible/dfirctl automation, then Timesketch UI, then advanced memory analysis; investigation scope stays fixed |
+| Timesketch / OpenSearch runs out of memory | Medium | Medium | Heap capped at 1.5 GB; victim off in phase 2; fallback: Plaso CSV output reviewed in spreadsheet/timeline viewer |
+| Disk fills during processing | Medium | High | ~250 GB on a dedicated partition; delete work copies after each job; `df` check in `dfirctl` before each job |
+| Volatility 3 cannot read the virsh dump format | Medium | Low | Test in week 2 with a small dump; AVML image remains the primary memory source |
+| Scenario step fails silently (typo, timing) | Medium | Medium | Dry run in week 3; ground-truth file records each step's exit status |
 | Laptop failure or data loss | Low | High | Repository on GitHub; evidence backed up after week 4; the lab rebuilds from code |
 | Tool version changes break parsers | Low | Medium | Pin Docker image tags and Python package versions; record versions in the custody log |
 | Volatility 3 has no symbol table for the server's kernel | High | Medium | Build the ISF file with dwarf2json from the server's debug kernel in week 2; pin the kernel version (no updates) until the scenario is done |
