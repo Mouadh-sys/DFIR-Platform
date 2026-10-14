@@ -1,36 +1,44 @@
 #!/usr/bin/env python3
-import csv, json, sys
+import csv, json
 from pathlib import Path
 
 root = Path("/mnt/dfir-evidence")
 out = root / "results/C01/timeline-merged.csv"
 out.parent.mkdir(parents=True, exist_ok=True)
 
+def zeek_rows(path):
+    """Yield dicts keyed by Zeek's #fields header."""
+    fields = None
+    with path.open() as f:
+        for line in f:
+            if line.startswith("#fields"):
+                fields = line.strip().split("\t")[1:]
+                continue
+            if line.startswith("#") or not line.strip():
+                continue
+            if not fields: continue
+            yield dict(zip(fields, line.rstrip("\n").split("\t")))
+
 with out.open("w", newline="") as f:
     w = csv.writer(f)
     w.writerow(["utc", "epoch_us", "source", "event", "detail"])
 
-    # Zeek http
-    for line in (root/"results/C01-E001-PCAP/zeek/http.log").read_text().splitlines():
-        if not line or line.startswith("#"): continue
-        parts = line.split("\t")
-        if len(parts) < 15: continue
-        ts = parts[0]
-        w.writerow([f"@zeek-http", ts, "zeek-http",
-                    f"{parts[2]}:{parts[3]} GET {parts[9]}",
-                    f"host={parts[8]} status={parts[14]}"])
+    for r in zeek_rows(root/"results/C01-E001-PCAP/zeek/http.log"):
+        w.writerow([
+            r.get("ts", ""), "",
+            "zeek-http",
+            f"{r.get('id.orig_h')}:{r.get('id.orig_p')} {r.get('method')} {r.get('uri')}",
+            f"host={r.get('host')} status={r.get('status_code')}",
+        ])
 
-    # Zeek conn
-    for line in (root/"results/C01-E001-PCAP/zeek/conn.log").read_text().splitlines():
-        if not line or line.startswith("#"): continue
-        parts = line.split("\t")
-        if len(parts) < 10: continue
-        ts = parts[0]
-        w.writerow([f"@zeek-conn", ts, "zeek-conn",
-                    f"{parts[2]}:{parts[3]} -> {parts[4]}:{parts[5]}",
-                    f"proto={parts[6]} dur={parts[8]}"])
+    for r in zeek_rows(root/"results/C01-E001-PCAP/zeek/conn.log"):
+        w.writerow([
+            r.get("ts", ""), "",
+            "zeek-conn",
+            f"{r.get('id.orig_h')}:{r.get('id.orig_p')} -> {r.get('id.resp_h')}:{r.get('id.resp_p')}",
+            f"proto={r.get('proto')} dur={r.get('duration')}",
+        ])
 
-    # Health log
     for line in (root/"logs/lab-health.log").read_text().splitlines():
         if "method=GET" in line and "src=" in line:
             fields = dict(kv.split("=", 1) for kv in line.split() if "=" in kv)
@@ -38,17 +46,13 @@ with out.open("w", newline="") as f:
                         f"src={fields.get('src', '?')}",
                         f"path={fields.get('path', '?')}"])
 
-    # Plaso — use date_time, NOT timestamp
     for line in (root/"results/C01-E002-TRIAGE/plaso/timeline.jsonl").read_text().splitlines():
         if not line.strip(): continue
         e = json.loads(line)
-        msg = str(e.get("message", ""))[:160]
         w.writerow([
-            e.get("date_time", ""),
-            e.get("timestamp", ""),
-            "plaso",
-            e.get("timestamp_desc", ""),
-            msg,
+            e.get("date_time", ""), e.get("timestamp", ""),
+            "plaso", e.get("timestamp_desc", ""),
+            str(e.get("message", ""))[:160],
         ])
 
 print(f"wrote {out}")
