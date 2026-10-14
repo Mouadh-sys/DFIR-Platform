@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DFIR Portal — {{ case }}</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="brand">
+    <strong>DFIR Portal</strong>
+    <span class="case">Case {{ case }}</span>
+  </div>
+  <nav>
+    <a href="#dashboard" class="active">Dashboard</a>
+    <a href="#evidence">Evidence</a>
+    <a href="#custody">Custody</a>
+    <a href="#timeline">Timeline</a>
+    <a href="#findings">Findings</a>
+    <a href="#iocs">IOCs</a>
+    <a href="#artifacts">Artifacts</a>
+    <a href="#runlog">Run log</a>
+  </nav>
+  <footer>
+    <div class="muted">generated {{ generated_utc }}</div>
+  </footer>
+</aside>
+
+<main>
+
+<!-- ============ DASHBOARD ============ -->
+<section id="dashboard" class="view">
+  <h1>Case {{ case }}</h1>
+  <p class="subtitle">Linux web-server compromise emulation — isolated libvirt lab</p>
+
+  <div class="cards">
+    <div class="card">
+      <div class="num">{{ manifest | length }}</div>
+      <div class="lbl">Evidence items</div>
+    </div>
+    <div class="card">
+      <div class="num">{{ ground_truth | length }}</div>
+      <div class="lbl">Scenario steps</div>
+    </div>
+    <div class="card">
+      <div class="num">{{ timeline_total }}</div>
+      <div class="lbl">Timeline events (capped)</div>
+    </div>
+    <div class="card">
+      <div class="num">{{ iocs | length }}</div>
+      <div class="lbl">Indicators</div>
+    </div>
+  </div>
+
+  <h2>Key anchors</h2>
+  <table class="kv">
+    <tr><th>Custody chain tip</th><td class="mono">{{ custody_tip }}</td></tr>
+    <tr><th>Ground truth seal</th><td class="mono">{{ gt_seal }}</td></tr>
+    <tr><th>Isolation</th><td>libvirt <code>lab-isolated</code>, no NAT, no forward</td></tr>
+    <tr><th>Network</th><td>10.10.10.0/24 — host bridge <code>10.10.10.1</code>, guest <code>10.10.10.30</code></td></tr>
+    <tr><th>Scope</th><td>one Linux guest; no Windows; no memory acquisition; no exfiltration</td></tr>
+  </table>
+
+  <h2>Status</h2>
+  <ul class="checks">
+    <li class="{{ 'ok' if manifest else 'warn' }}">Evidence ingested: {{ manifest | length }} item(s)</li>
+    <li class="{{ 'ok' if custody else 'warn' }}">Custody chain: {{ custody | length }} record(s)</li>
+    <li class="{{ 'ok' if ground_truth else 'warn' }}">Ground truth: {{ ground_truth | length }} step(s)</li>
+    <li class="{{ 'ok' if zeek_files else 'warn' }}">Zeek logs: {{ zeek_files | length }} file(s)</li>
+    <li class="{{ 'ok' if plaso_files else 'warn' }}">Plaso output: {{ plaso_files | length }} file(s)</li>
+  </ul>
+</section>
+
+<!-- ============ EVIDENCE ============ -->
+<section id="evidence" class="view" hidden>
+  <h1>Evidence inventory</h1>
+  <p class="subtitle">Originals are read-only, mode 0444. Analysis uses working copies only.</p>
+  <table>
+    <thead>
+      <tr><th>Evidence ID</th><th>Filename</th><th>SHA-256</th><th>MD5</th><th class="num">Size</th><th>Registered</th></tr>
+    </thead>
+    <tbody>
+    {% for m in manifest %}
+      <tr>
+        <td class="mono">{{ m.evidence_id }}</td>
+        <td>{{ m.original_filename }}</td>
+        <td class="mono small" title="{{ m.sha256 }}">{{ m.sha256 | toshort(24) }}</td>
+        <td class="mono small" title="{{ m.md5 }}">{{ m.md5 | toshort(16) }}</td>
+        <td class="num">{{ m.size_bytes }}</td>
+        <td class="mono small">{{ m.registered_utc }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<!-- ============ CUSTODY ============ -->
+<section id="custody" class="view" hidden>
+  <h1>Chain of custody</h1>
+  <p class="subtitle">Append-only hash chain. Each record's <code>prev_entry_hash</code> anchors it to the previous.</p>
+  <ol class="chain">
+  {% for c in custody %}
+    <li>
+      <div class="chain-head">
+        <span class="chain-action">{{ c.action }}</span>
+        <span class="mono">{{ c.evidence_id }}</span>
+        <span class="muted mono small">{{ c.timestamp_utc }}</span>
+      </div>
+      <div class="mono small">entry {{ c.entry_hash | toshort(24) }} ← prev {{ c.prev_entry_hash | toshort(24) }}</div>
+      <div class="muted small">{{ c.note }}</div>
+    </li>
+  {% endfor %}
+  </ol>
+  <h2>Chain tip</h2>
+  <code class="mono">{{ custody_tip }}</code>
+</section>
+
+<!-- ============ TIMELINE ============ -->
+<section id="timeline" class="view" hidden>
+  <h1>Unified timeline</h1>
+  <p class="subtitle">Zeek + Plaso + health-endpoint, normalized to UTC. First {{ timeline_total }} rows.</p>
+  <input id="tl-filter" placeholder="filter (e.g. DFIR-LAB-S08, 10.10.10.30, cron)…" autocomplete="off">
+  <table id="tl-table">
+    <thead>
+      <tr><th>Time (UTC)</th><th>Source</th><th>Event</th><th>Detail</th></tr>
+    </thead>
+    <tbody>
+    {% for row in timeline %}
+      <tr>
+        <td class="mono small">{{ row.utc }}</td>
+        <td>{{ row.source }}</td>
+        <td>{{ row.event }}</td>
+        <td class="small">{{ row.detail }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<!-- ============ FINDINGS ============ -->
+<section id="findings" class="view" hidden>
+  <h1>Scenario steps and findings</h1>
+  <p class="subtitle">Each step is either <em>executed as benign behavior</em> or <em>emulated as a marker</em>. No exploitation, no exfiltration, no log clearing is claimed.</p>
+  <table>
+    <thead>
+      <tr><th>Step</th><th>Name</th><th>ATT&CK</th><th>Status</th><th>Start (UTC)</th><th>End (UTC)</th></tr>
+    </thead>
+    <tbody>
+    {% for s in ground_truth %}
+      <tr>
+        <td class="mono">{{ s.step_id }}</td>
+        <td>{{ s.label }}</td>
+        <td class="mono">{{ s.attack }}</td>
+        <td><span class="badge badge-{{ 'exec' if 'executed' in s.status else 'emul' }}">{{ s.status }}</span></td>
+        <td class="mono small">{{ s.start_utc }}</td>
+        <td class="mono small">{{ s.end_utc }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<!-- ============ IOCS ============ -->
+<section id="iocs" class="view" hidden>
+  <h1>Indicators of compromise</h1>
+  <div class="callout warn">
+    <strong>Lab-only.</strong> Every indicator below is generated by, or specific to, this
+    isolated lab. None of these are threat intelligence. Do not circulate them as such.
+  </div>
+  <table>
+    <thead><tr><th>Type</th><th>Value</th><th>Notes</th></tr></thead>
+    <tbody>
+    {% for i in iocs %}
+      <tr>
+        <td>{{ i.type }}</td>
+        <td class="mono small">{{ i.value }}</td>
+        <td class="small">{{ i.note }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<!-- ============ ARTIFACTS ============ -->
+<section id="artifacts" class="view" hidden>
+  <h1>Analysis artifacts</h1>
+
+  <h2>Zeek</h2>
+  <ul>
+  {% for f in zeek_files %}
+    <li class="mono small">{{ f }}</li>
+  {% else %}
+    <li class="muted">no Zeek output</li>
+  {% endfor %}
+  </ul>
+
+  <h2>Plaso</h2>
+  <ul>
+  {% for f in plaso_files %}
+    <li class="mono small">{{ f }}</li>
+  {% else %}
+    <li class="muted">no Plaso output</li>
+  {% endfor %}
+  </ul>
+
+  <h2>YARA matches</h2>
+  {% if yara_text %}
+    <pre class="log">{{ yara_text }}</pre>
+  {% else %}
+    <p class="muted">No YARA matches. See the report's detection-gaps section for the reason.</p>
+  {% endif %}
+</section>
+
+<!-- ============ RUN LOG ============ -->
+<section id="runlog" class="view" hidden>
+  <h1>Run log</h1>
+  <p class="subtitle">Most recent <code>dfirctl</code> execution.</p>
+  <pre class="log">{{ run_log }}</pre>
+</section>
+
+</main>
+
+<script>
+// ---------- hash routing ----------
+function route() {
+  const id = (location.hash || "#dashboard").slice(1);
+  document.querySelectorAll("section.view").forEach(s => s.hidden = (s.id !== id));
+  document.querySelectorAll("aside nav a").forEach(a =>
+    a.classList.toggle("active", a.getAttribute("href") === "#" + id));
+}
+window.addEventListener("hashchange", route);
+route();
+
+// ---------- timeline filter ----------
+const filterInput = document.getElementById("tl-filter");
+if (filterInput) {
+  filterInput.addEventListener("input", () => {
+    const q = filterInput.value.toLowerCase();
+    const rows = document.querySelectorAll("#tl-table tbody tr");
+    rows.forEach(r => {
+      const hit = q === "" || r.textContent.toLowerCase().includes(q);
+      r.style.display = hit ? "" : "none";
+    });
+  });
+}
+</script>
+</body>
+</html>

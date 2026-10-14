@@ -1,0 +1,96 @@
+:root {
+  --bg: #0b0f14;
+  --panel: #111821;
+  --panel-2: #0e141c;
+  --border: #1d2733;
+  --fg: #d6dde6;
+  --fg-mute: #7b8896;
+  --accent: #5aa9e6;
+  --ok: #4cd68a;
+  --warn: #e6b84c;
+  --err: #ef6461;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; display: grid; grid-template-columns: 240px 1fr;
+  min-height: 100vh; background: var(--bg); color: var(--fg);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.sidebar {
+  background: var(--panel-2); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; padding: 20px 0; position: sticky;
+  top: 0; height: 100vh;
+}
+.brand { padding: 0 20px 16px; border-bottom: 1px solid var(--border); }
+.brand strong { display: block; font-size: 15px; letter-spacing: .02em; }
+.brand .case { color: var(--fg-mute); font-size: 12px; }
+nav { display: flex; flex-direction: column; padding: 12px 0; flex: 1; }
+nav a {
+  padding: 8px 20px; color: var(--fg-mute); text-decoration: none;
+  border-left: 2px solid transparent;
+}
+nav a:hover { color: var(--fg); background: #0f1621; }
+nav a.active { color: var(--accent); border-left-color: var(--accent); background: #0f1621; }
+.sidebar footer { padding: 12px 20px; border-top: 1px solid var(--border); }
+
+main { padding: 28px 36px; max-width: 1200px; }
+h1 { font-size: 22px; margin: 0 0 6px; }
+h2 { font-size: 15px; margin: 28px 0 10px; color: var(--fg-mute); text-transform: uppercase; letter-spacing: .05em; }
+.subtitle { color: var(--fg-mute); margin: 0 0 20px; }
+.muted { color: var(--fg-mute); }
+.mono { font-family: var(--mono); }
+.small { font-size: 12px; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+.card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+  padding: 16px;
+}
+.card .num { font-size: 28px; font-weight: 600; text-align: left; color: var(--accent); }
+.card .lbl { color: var(--fg-mute); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+
+table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { background: var(--panel-2); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-mute); font-weight: 500; }
+tr:last-child td { border-bottom: none; }
+.kv th { width: 200px; }
+.kv td { font-size: 13px; }
+
+code, .code {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 3px;
+  padding: 1px 6px; font-family: var(--mono); font-size: 12px;
+}
+pre.log {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+  padding: 14px; overflow: auto; max-height: 500px; font-family: var(--mono);
+  font-size: 12px; line-height: 1.45;
+}
+
+ul.checks { list-style: none; padding: 0; }
+ul.checks li { padding: 6px 0 6px 24px; position: relative; }
+ul.checks li::before { content: "○"; position: absolute; left: 6px; color: var(--fg-mute); }
+ul.checks li.ok::before { content: "●"; color: var(--ok); }
+ul.checks li.warn::before { content: "●"; color: var(--warn); }
+
+ol.chain { list-style: none; padding: 0; }
+ol.chain li {
+  background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: 4px; padding: 10px 14px; margin-bottom: 8px;
+}
+.chain-head { display: flex; gap: 12px; align-items: center; margin-bottom: 4px; }
+.chain-action { font-weight: 600; color: var(--accent); text-transform: uppercase; font-size: 11px; letter-spacing: .05em; }
+
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+.badge-exec { background: rgba(76,214,138,.12); color: var(--ok); }
+.badge-emul { background: rgba(230,184,76,.12); color: var(--warn); }
+
+.callout { padding: 12px 16px; border-radius: 6px; margin: 12px 0; }
+.callout.warn { background: rgba(230,184,76,.08); border: 1px solid rgba(230,184,76,.35); color: #f0d896; }
+
+#tl-filter {
+  width: 100%; padding: 8px 12px; margin: 12px 0;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--fg); font-family: var(--mono); font-size: 13px;
+}

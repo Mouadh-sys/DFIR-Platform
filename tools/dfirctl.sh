@@ -212,6 +212,13 @@ cmd_process() {
 cmd_timeline() { python3 "$REPO/tools/build-timeline.py"; }
 cmd_verify()   { python3 "$REPO/tools/verify.py" --root "$EVID"; }
 
+cmd_portal() {
+  local py="$HOME/venvs/portal/bin/python3"
+  [ -x "$py" ] || die "portal venv missing: python3 -m venv ~/venvs/portal && ~/venvs/portal/bin/pip install jinja2"
+  "$py" "$REPO/tools/build-portal.py" --root "$EVID" --case "$CASE"
+  info "portal: file://$EVID/results/$CASE/portal/index.html"
+}
+
 cmd_report() {
   local md="$REPO/report/02-analysis.md"
   [ -f "$md" ] || die "report source missing: $md"
@@ -229,6 +236,7 @@ cmd_all() {
   cmd_process
   cmd_timeline
   cmd_verify
+  cmd_portal
 }
 
 case "${1:-}" in
@@ -240,6 +248,7 @@ case "${1:-}" in
   timeline)  cmd_timeline ;;
   verify)    cmd_verify ;;
   report)    cmd_report ;;
+  portal)    cmd_portal ;;
   all)       cmd_all ;;
   *) sed -n '/^# Subcommands:/,/^# Every/p' "$0"; exit 1 ;;
 esac
