@@ -181,8 +181,8 @@ dfir-platform/
 
 ### Host
 
-- Pop!_OS / Ubuntu Linux with KVM and libvirt (`qemu:///system` reachable)
-- 16 GB RAM recommended; a dedicated evidence filesystem with roughly 250 GB
+- Linux Machine with KVM and libvirt (`qemu:///system` reachable)
+- 16 GB RAM recommended; a dedicated evidence filesystem
 - Docker Engine and Docker Compose v2
 - Python 3.11+
 - `tcpdump`, `jq`, `zeek`, `yara`, `pandoc`, and a XeLaTeX engine
